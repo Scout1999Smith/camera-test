@@ -17,14 +17,15 @@ h1{font-size:21px;margin:0}header p{margin:3px 0 0;color:var(--muted);font-size:
 .card h2{font-size:15px;margin:0 0 12px}
 .switchrow{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-top:1px solid #f0f2f5}
 .switchrow:first-of-type{border-top:0}.switchrow small{display:block;color:var(--muted);margin-top:3px}
-.switch{position:relative;width:48px;height:28px}.switch input{opacity:0;width:0;height:0}
+.switch{position:relative;width:48px;height:28px;flex:none}.switch input{opacity:0;width:0;height:0}
 .track{position:absolute;inset:0;border-radius:20px;background:#cbd5e1;transition:.2s;cursor:pointer}
 .track:before{content:"";position:absolute;width:22px;height:22px;left:3px;top:3px;border-radius:50%;background:white;transition:.2s}
 .switch input:checked+.track{background:var(--blue)}.switch input:checked+.track:before{transform:translateX(20px)}
+.switch input:focus-visible+.track{outline:3px solid #93b4ff;outline-offset:2px}
 #reader{width:100%;overflow:hidden;border-radius:14px;background:#101827;min-height:220px}
-#reader video{object-fit:cover}
+#reader video{object-fit:contain;max-width:100%}
 .actions{display:flex;gap:10px;margin-top:12px}
-button{border:0;border-radius:12px;padding:13px 16px;font-size:15px;font-weight:650;cursor:pointer}
+button{border:0;border-radius:12px;padding:13px 16px;font-size:15px;font-weight:650;cursor:pointer;touch-action:manipulation}
 .primary{background:var(--blue);color:white;flex:1}.secondary{background:#edf1f7;color:#263449;flex:1}
 button:disabled{opacity:.45;cursor:not-allowed}
 .status{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px;margin-top:10px}
@@ -35,7 +36,8 @@ textarea{width:100%;min-height:160px;resize:vertical;border:1px solid var(--line
 textarea:focus{border-color:#93b4ff}
 .tools{display:flex;gap:8px;margin-top:10px}.tools button{font-size:13px;padding:10px 12px}
 .note{font-size:12px;color:var(--muted);line-height:1.55;margin:10px 2px}
-.error{color:#b42318;font-size:13px;margin-top:8px;white-space:pre-wrap}
+.error{color:#b42318;font-size:13px;margin-top:8px;white-space:pre-wrap;overflow-wrap:anywhere}
+@media (max-width:380px){main{padding:14px 12px 28px}.card{padding:13px}.actions{gap:8px}.actions button{padding:12px 10px}}
 </style>
 </head>
 <body>
@@ -44,8 +46,8 @@ textarea:focus{border-color:#93b4ff}
 
 <section class="card">
 <h2>识别类型</h2>
-<div class="switchrow"><div><b>一维条形码</b><small>EAN、UPC、Code 128、Code 39 等</small></div><label class="switch"><input id="barToggle" type="checkbox" checked><span class="track"></span></label></div>
-<div class="switchrow"><div><b>二维码</b><small>QR Code</small></div><label class="switch"><input id="qrToggle" type="checkbox" checked><span class="track"></span></label></div>
+<div class="switchrow"><div><b>一维条形码</b><small>EAN、UPC、Code 128、Code 39 等</small></div><label class="switch" aria-label="开启一维条形码识别"><input id="barToggle" type="checkbox" checked><span class="track"></span></label></div>
+<div class="switchrow"><div><b>二维码及二维条码</b><small>QR Code、Data Matrix、PDF_417、AZTEC</small></div><label class="switch" aria-label="开启二维码及二维条码识别"><input id="matrixToggle" type="checkbox" checked><span class="track"></span></label></div>
 </section>
 
 <section class="card">
@@ -53,7 +55,7 @@ textarea:focus{border-color:#93b4ff}
 <div id="reader"></div>
 <div class="actions"><button id="startBtn" class="primary">开始扫描</button><button id="stopBtn" class="secondary" disabled>停止扫描</button></div>
 <div class="status"><span id="dot" class="dot"></span><span id="status">尚未启动摄像头</span></div>
-<div id="error" class="error"></div>
+<div id="error" class="error" role="alert"></div>
 </section>
 
 <section class="card">
@@ -62,88 +64,153 @@ textarea:focus{border-color:#93b4ff}
 <div class="stat"><b id="count">0</b><span>成功录入条数</span></div>
 <div class="stat"><b id="types">两种类型</b><span>当前识别模式</span></div>
 </div>
-<p class="note">结果会依次追加到同一个输入框。相同内容持续出现在镜头中时只录入一次；离开镜头约 1.2 秒后再次扫描，可重新录入。</p>
-<textarea id="results" placeholder="扫描结果将依次显示在这里…" spellcheck="false"></textarea>
+<p class="note">结果会依次追加到同一个输入框。相同内容持续出现在镜头中时只录入一次；离开镜头约 1.4 秒后再次扫描，可重新录入。</p>
+<textarea id="results" placeholder="扫描结果将依次显示在这里…" spellcheck="false" aria-label="扫描结果"></textarea>
 <div class="tools"><button id="copyBtn" class="secondary">复制结果</button><button id="clearBtn" class="secondary">清空结果</button></div>
 </section>
-<p class="note">首次使用请允许浏览器访问摄像头。摄像头通常要求通过 HTTPS 网站打开（localhost 除外）。本页面使用 html5-qrcode 开源库，需联网加载识别组件。</p>
+<p class="note">首次使用请允许浏览器访问摄像头。摄像头通常要求通过 HTTPS 网站打开（localhost 除外）。为识别小尺寸、密集印刷的标签，扫描使用较高的理想摄像头分辨率并利用完整画面；实际分辨率取决于设备和浏览器。本页面使用 html5-qrcode 开源库，需联网加载识别组件。</p>
 </main>
 <script>
+'use strict';
 const $=id=>document.getElementById(id);
-let scanner=null, running=false, count=0, lastSeen=new Map(), accepted=new Set(), restartTimer=null;
+let scanner=null,running=false,starting=false,count=0;
+const lastSeen=new Map();
+const accepted=new Set();
+const DEDUPE_TIMEOUT_MS=1400;
+
+// html5-qrcode 2.3.8 exports all of these enum constants.
 const barFormats=[
  Html5QrcodeSupportedFormats.EAN_13,Html5QrcodeSupportedFormats.EAN_8,
  Html5QrcodeSupportedFormats.UPC_A,Html5QrcodeSupportedFormats.UPC_E,
  Html5QrcodeSupportedFormats.CODE_128,Html5QrcodeSupportedFormats.CODE_39,
- Html5QrcodeSupportedFormats.CODE_93,Html5QrcodeSupportedFormats.ITF,
- Html5QrcodeSupportedFormats.CODABAR
+ Html5QrcodeSupportedFormats.CODE_93,Html5QrcodeSupportedFormats.CODABAR,
+ Html5QrcodeSupportedFormats.ITF
+];
+const matrixFormats=[
+ Html5QrcodeSupportedFormats.QR_CODE,
+ Html5QrcodeSupportedFormats.DATA_MATRIX,
+ Html5QrcodeSupportedFormats.PDF_417,
+ Html5QrcodeSupportedFormats.AZTEC
 ];
 function formats(){
  const out=[];
  if($('barToggle').checked) out.push(...barFormats);
- if($('qrToggle').checked) out.push(Html5QrcodeSupportedFormats.QR_CODE);
+ if($('matrixToggle').checked) out.push(...matrixFormats);
  return [...new Set(out)];
 }
 function modeText(){
- const b=$('barToggle').checked,q=$('qrToggle').checked;
- $('types').textContent=b&&q?'两种类型':b?'仅条形码':q?'仅二维码':'已关闭';
+ const b=$('barToggle').checked,m=$('matrixToggle').checked;
+ $('types').textContent=b&&m?'两种类型':b?'仅条形码':m?'仅二维码及二维条码':'已关闭';
 }
 function status(text,live=false){
- $('status').textContent=text;$('dot').classList.toggle('live',live);
- $('startBtn').disabled=running;$('stopBtn').disabled=!running;
+ $('status').textContent=text;
+ $('dot').classList.toggle('live',live);
+ $('startBtn').disabled=running||starting;
+ $('stopBtn').disabled=!running;
 }
 function onDecoded(decodedText){
+ if(typeof decodedText!=='string'||!decodedText.length) return;
  const now=Date.now();
  lastSeen.set(decodedText,now);
  if(accepted.has(decodedText)) return;
  accepted.add(decodedText);
- count++;$('count').textContent=count;
+ count++;
+ $('count').textContent=count;
  const box=$('results');
- box.value += (box.value ? '\n' : '') + decodedText;
+ box.value+=(box.value?'\n':'')+decodedText;
  box.scrollTop=box.scrollHeight;
  if(navigator.vibrate) navigator.vibrate(35);
 }
 setInterval(()=>{
  const now=Date.now();
  for(const [code,seen] of lastSeen){
-   if(now-seen>1200){lastSeen.delete(code);accepted.delete(code);}
+  if(now-seen>DEDUPE_TIMEOUT_MS){lastSeen.delete(code);accepted.delete(code);}
  }
-},300);
-async function start(){
- $('error').textContent='';
- if(!formats().length){$('error').textContent='请至少开启一种识别类型。';return;}
+},250);
+async function releaseScanner(){
+ if(!scanner) return;
+ const oldScanner=scanner;
+ scanner=null;
  try{
-  if(!scanner) scanner=new Html5Qrcode('reader',{formatsToSupport:formats(),verbose:false});
-  else if(scanner.getState()===Html5QrcodeScannerState.NOT_STARTED){
-    // A fresh scanner is created below when settings changed while stopped.
-  }
-  if(scanner && scanner.getState()!==Html5QrcodeScannerState.NOT_STARTED){
-    await scanner.stop();
-  }
-  scanner=new Html5Qrcode('reader',{formatsToSupport:formats(),verbose:false});
-  await scanner.start({facingMode:'environment'},{fps:18,qrbox:(w,h)=>({width:Math.floor(Math.min(w,h)*.82),height:Math.floor(Math.min(w,h)*.55)}),aspectRatio:1.0},onDecoded,()=>{});
-  running=true;status('正在扫描 · 请将码放入取景框',true);
+  if(oldScanner.getState()!==Html5QrcodeScannerState.NOT_STARTED) await oldScanner.stop();
+ }catch(e){/* Stop may already have been completed by the camera/browser. */}
+ try{await oldScanner.clear();}catch(e){/* clear is best-effort after startup failures. */}
+}
+async function start(){
+ if(running||starting) return;
+ $('error').textContent='';
+ const activeFormats=formats();
+ if(!activeFormats.length){$('error').textContent='请至少开启一种识别类型。';return;}
+ if(typeof Html5Qrcode==='undefined'){
+  status('扫码组件加载失败');
+  $('error').textContent='无法加载 html5-qrcode 组件，请检查网络连接后刷新页面。';
+  return;
+ }
+ starting=true;
+ status('正在启动摄像头…');
+ try{
+  await releaseScanner();
+  scanner=new Html5Qrcode('reader',{formatsToSupport:activeFormats,verbose:false});
+  await scanner.start(
+   {facingMode:'environment'},
+   {
+    fps:12,
+    // Do not set qrbox: scan the full camera frame, which helps with small labels.
+    videoConstraints:{
+     facingMode:{ideal:'environment'},
+     width:{ideal:1920},
+     height:{ideal:1080},
+     frameRate:{ideal:24,max:30}
+    }
+   },
+   onDecoded,
+   ()=>{}
+  );
+  running=true;
+  starting=false;
+  status('正在扫描 · 请将标签放入完整画面',true);
  }catch(e){
-  running=false;status('摄像头启动失败');
-  $('error').textContent='无法启动摄像头：'+(e.message||e)+'\n请检查摄像头权限，并通过 HTTPS 打开页面。';
+  running=false;
+  starting=false;
+  const detail=e&&e.message?e.message:String(e);
+  status('摄像头启动失败');
+  $('error').textContent='无法启动摄像头：'+detail+'\n请确认已允许摄像头权限、使用 HTTPS（或 localhost），并检查其他应用是否正在占用摄像头。';
+  await releaseScanner();
  }
 }
 async function stop(){
- try{if(scanner && running) await scanner.stop();}catch(e){}
- running=false;status('扫描已停止');
+ if(!running&&!starting){status('扫描已停止');return;}
+ starting=false;
+ status('正在停止扫描…');
+ await releaseScanner();
+ running=false;
+ starting=false;
+ status('扫描已停止');
 }
 $('startBtn').addEventListener('click',start);
 $('stopBtn').addEventListener('click',stop);
 function settingsChanged(){
  modeText();
- if(running){stop().then(()=>{if(formats().length)start();else $('error').textContent='两种识别类型均已关闭。';});}
+ if(running||starting){
+  stop().then(()=>{
+   if(formats().length) return start();
+   $('error').textContent='两种识别类型均已关闭。';
+  }).catch(e=>{$('error').textContent='更新识别设置失败：'+(e.message||e);});
+ }
 }
 $('barToggle').addEventListener('change',settingsChanged);
-$('qrToggle').addEventListener('change',settingsChanged);
-$('clearBtn').addEventListener('click',()=>{ $('results').value='';count=0;$('count').textContent='0'; });
+$('matrixToggle').addEventListener('change',settingsChanged);
+$('clearBtn').addEventListener('click',()=>{
+ $('results').value='';
+ count=0;
+ $('count').textContent='0';
+});
 $('copyBtn').addEventListener('click',async()=>{
- try{await navigator.clipboard.writeText($('results').value);$('copyBtn').textContent='已复制';setTimeout(()=>$('copyBtn').textContent='复制结果',1200);}
- catch(e){$('error').textContent='复制失败，请长按输入框手动复制。';}
+ try{
+  await navigator.clipboard.writeText($('results').value);
+  $('copyBtn').textContent='已复制';
+  setTimeout(()=>$('copyBtn').textContent='复制结果',1200);
+ }catch(e){$('error').textContent='复制失败，请长按输入框手动复制。';}
 });
 modeText();
 </script>
