@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#101827">
+<title>连续扫码助手</title>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+:root{color-scheme:light;--ink:#172033;--muted:#697586;--line:#e5eaf0;--blue:#2563eb;--bg:#f4f7fb}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--ink)}
+main{max-width:560px;margin:auto;padding:18px 16px 36px}
+header{display:flex;align-items:center;gap:12px;margin:6px 0 18px}
+.logo{width:44px;height:44px;border-radius:14px;background:#e7efff;display:grid;place-items:center;font-size:23px}
+h1{font-size:21px;margin:0}header p{margin:3px 0 0;color:var(--muted);font-size:13px}
+.card{background:white;border:1px solid var(--line);border-radius:18px;padding:16px;margin:12px 0;box-shadow:0 5px 20px #17203308}
+.card h2{font-size:15px;margin:0 0 12px}
+.switchrow{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-top:1px solid #f0f2f5}
+.switchrow:first-of-type{border-top:0}.switchrow small{display:block;color:var(--muted);margin-top:3px}
+.switch{position:relative;width:48px;height:28px}.switch input{opacity:0;width:0;height:0}
+.track{position:absolute;inset:0;border-radius:20px;background:#cbd5e1;transition:.2s;cursor:pointer}
+.track:before{content:"";position:absolute;width:22px;height:22px;left:3px;top:3px;border-radius:50%;background:white;transition:.2s}
+.switch input:checked+.track{background:var(--blue)}.switch input:checked+.track:before{transform:translateX(20px)}
+#reader{width:100%;overflow:hidden;border-radius:14px;background:#101827;min-height:220px}
+#reader video{object-fit:cover}
+.actions{display:flex;gap:10px;margin-top:12px}
+button{border:0;border-radius:12px;padding:13px 16px;font-size:15px;font-weight:650;cursor:pointer}
+.primary{background:var(--blue);color:white;flex:1}.secondary{background:#edf1f7;color:#263449;flex:1}
+button:disabled{opacity:.45;cursor:not-allowed}
+.status{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px;margin-top:10px}
+.dot{width:8px;height:8px;border-radius:50%;background:#94a3b8}.dot.live{background:#16a34a;box-shadow:0 0 0 4px #16a34a20}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.stat{background:#f7f9fc;border-radius:12px;padding:12px}.stat b{display:block;font-size:23px}.stat span{color:var(--muted);font-size:12px}
+textarea{width:100%;min-height:160px;resize:vertical;border:1px solid var(--line);border-radius:12px;padding:12px;font:14px/1.6 ui-monospace,monospace;outline:none}
+textarea:focus{border-color:#93b4ff}
+.tools{display:flex;gap:8px;margin-top:10px}.tools button{font-size:13px;padding:10px 12px}
+.note{font-size:12px;color:var(--muted);line-height:1.55;margin:10px 2px}
+.error{color:#b42318;font-size:13px;margin-top:8px;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<main>
+<header><div class="logo">▦</div><div><h1>连续扫码助手</h1><p>手机摄像头 · 连续录入 · 自动去重</p></div></header>
+
+<section class="card">
+<h2>识别类型</h2>
+<div class="switchrow"><div><b>一维条形码</b><small>EAN、UPC、Code 128、Code 39 等</small></div><label class="switch"><input id="barToggle" type="checkbox" checked><span class="track"></span></label></div>
+<div class="switchrow"><div><b>二维码</b><small>QR Code</small></div><label class="switch"><input id="qrToggle" type="checkbox" checked><span class="track"></span></label></div>
+</section>
+
+<section class="card">
+<h2>摄像头扫描</h2>
+<div id="reader"></div>
+<div class="actions"><button id="startBtn" class="primary">开始扫描</button><button id="stopBtn" class="secondary" disabled>停止扫描</button></div>
+<div class="status"><span id="dot" class="dot"></span><span id="status">尚未启动摄像头</span></div>
+<div id="error" class="error"></div>
+</section>
+
+<section class="card">
+<h2>扫描结果</h2>
+<div class="stats">
+<div class="stat"><b id="count">0</b><span>成功录入条数</span></div>
+<div class="stat"><b id="types">两种类型</b><span>当前识别模式</span></div>
+</div>
+<p class="note">结果会依次追加到同一个输入框。相同内容持续出现在镜头中时只录入一次；离开镜头约 1.2 秒后再次扫描，可重新录入。</p>
+<textarea id="results" placeholder="扫描结果将依次显示在这里…" spellcheck="false"></textarea>
+<div class="tools"><button id="copyBtn" class="secondary">复制结果</button><button id="clearBtn" class="secondary">清空结果</button></div>
+</section>
+<p class="note">首次使用请允许浏览器访问摄像头。摄像头通常要求通过 HTTPS 网站打开（localhost 除外）。本页面使用 html5-qrcode 开源库，需联网加载识别组件。</p>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+let scanner=null, running=false, count=0, lastSeen=new Map(), accepted=new Set(), restartTimer=null;
+const barFormats=[
+ Html5QrcodeSupportedFormats.EAN_13,Html5QrcodeSupportedFormats.EAN_8,
+ Html5QrcodeSupportedFormats.UPC_A,Html5QrcodeSupportedFormats.UPC_E,
+ Html5QrcodeSupportedFormats.CODE_128,Html5QrcodeSupportedFormats.CODE_39,
+ Html5QrcodeSupportedFormats.CODE_93,Html5QrcodeSupportedFormats.ITF,
+ Html5QrcodeSupportedFormats.CODABAR
+];
+function formats(){
+ const out=[];
+ if($('barToggle').checked) out.push(...barFormats);
+ if($('qrToggle').checked) out.push(Html5QrcodeSupportedFormats.QR_CODE);
+ return [...new Set(out)];
+}
+function modeText(){
+ const b=$('barToggle').checked,q=$('qrToggle').checked;
+ $('types').textContent=b&&q?'两种类型':b?'仅条形码':q?'仅二维码':'已关闭';
+}
+function status(text,live=false){
+ $('status').textContent=text;$('dot').classList.toggle('live',live);
+ $('startBtn').disabled=running;$('stopBtn').disabled=!running;
+}
+function onDecoded(decodedText){
+ const now=Date.now();
+ lastSeen.set(decodedText,now);
+ if(accepted.has(decodedText)) return;
+ accepted.add(decodedText);
+ count++;$('count').textContent=count;
+ const box=$('results');
+ box.value += (box.value ? '\n' : '') + decodedText;
+ box.scrollTop=box.scrollHeight;
+ if(navigator.vibrate) navigator.vibrate(35);
+}
+setInterval(()=>{
+ const now=Date.now();
+ for(const [code,seen] of lastSeen){
+   if(now-seen>1200){lastSeen.delete(code);accepted.delete(code);}
+ }
+},300);
+async function start(){
+ $('error').textContent='';
+ if(!formats().length){$('error').textContent='请至少开启一种识别类型。';return;}
+ try{
+  if(!scanner) scanner=new Html5Qrcode('reader',{formatsToSupport:formats(),verbose:false});
+  else if(scanner.getState()===Html5QrcodeScannerState.NOT_STARTED){
+    // A fresh scanner is created below when settings changed while stopped.
+  }
+  if(scanner && scanner.getState()!==Html5QrcodeScannerState.NOT_STARTED){
+    await scanner.stop();
+  }
+  scanner=new Html5Qrcode('reader',{formatsToSupport:formats(),verbose:false});
+  await scanner.start({facingMode:'environment'},{fps:18,qrbox:(w,h)=>({width:Math.floor(Math.min(w,h)*.82),height:Math.floor(Math.min(w,h)*.55)}),aspectRatio:1.0},onDecoded,()=>{});
+  running=true;status('正在扫描 · 请将码放入取景框',true);
+ }catch(e){
+  running=false;status('摄像头启动失败');
+  $('error').textContent='无法启动摄像头：'+(e.message||e)+'\n请检查摄像头权限，并通过 HTTPS 打开页面。';
+ }
+}
+async function stop(){
+ try{if(scanner && running) await scanner.stop();}catch(e){}
+ running=false;status('扫描已停止');
+}
+$('startBtn').addEventListener('click',start);
+$('stopBtn').addEventListener('click',stop);
+function settingsChanged(){
+ modeText();
+ if(running){stop().then(()=>{if(formats().length)start();else $('error').textContent='两种识别类型均已关闭。';});}
+}
+$('barToggle').addEventListener('change',settingsChanged);
+$('qrToggle').addEventListener('change',settingsChanged);
+$('clearBtn').addEventListener('click',()=>{ $('results').value='';count=0;$('count').textContent='0'; });
+$('copyBtn').addEventListener('click',async()=>{
+ try{await navigator.clipboard.writeText($('results').value);$('copyBtn').textContent='已复制';setTimeout(()=>$('copyBtn').textContent='复制结果',1200);}
+ catch(e){$('error').textContent='复制失败，请长按输入框手动复制。';}
+});
+modeText();
+</script>
+</body>
+</html>
