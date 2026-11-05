@@ -30,6 +30,8 @@ button{border:0;border-radius:12px;padding:13px 16px;font-size:15px;font-weight:
 button:disabled{opacity:.45;cursor:not-allowed}
 .status{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px;margin-top:10px}
 .dot{width:8px;height:8px;border-radius:50%;background:#94a3b8}.dot.live{background:#16a34a;box-shadow:0 0 0 4px #16a34a20}
+.zoom-panel{margin-top:12px;padding:10px 12px;background:#f7f9fc;border-radius:12px}.zoom-panel[hidden]{display:none}
+.zoom-heading{display:flex;justify-content:space-between;align-items:center;font-size:13px}.zoom-panel input{width:100%;margin:10px 0 0;accent-color:var(--blue);touch-action:pan-y}
 .stats{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .stat{background:#f7f9fc;border-radius:12px;padding:12px}.stat b{display:block;font-size:23px}.stat span{color:var(--muted);font-size:12px}
 textarea{width:100%;min-height:160px;resize:vertical;border:1px solid var(--line);border-radius:12px;padding:12px;font:14px/1.6 ui-monospace,monospace;outline:none}
@@ -53,6 +55,10 @@ textarea:focus{border-color:#93b4ff}
 <section class="card">
 <h2>摄像头扫描</h2>
 <div id="reader"></div>
+<div class="zoom-panel" id="zoomPanel" hidden>
+ <div class="zoom-heading"><label for="zoomSlider">摄像头变焦（小标签可适当放大）</label><b id="zoomValue">1×</b></div>
+ <input id="zoomSlider" type="range" min="1" max="1" step="0.1" value="1">
+</div>
 <div class="actions"><button id="startBtn" class="primary">开始扫描</button><button id="stopBtn" class="secondary" disabled>停止扫描</button></div>
 <div class="status"><span id="dot" class="dot"></span><span id="status">尚未启动摄像头</span></div>
 <div id="error" class="error" role="alert"></div>
@@ -68,7 +74,7 @@ textarea:focus{border-color:#93b4ff}
 <textarea id="results" placeholder="扫描结果将依次显示在这里…" spellcheck="false" aria-label="扫描结果"></textarea>
 <div class="tools"><button id="copyBtn" class="secondary">复制结果</button><button id="clearBtn" class="secondary">清空结果</button></div>
 </section>
-<p class="note">首次使用请允许浏览器访问摄像头。摄像头通常要求通过 HTTPS 网站打开（localhost 除外）。为识别小尺寸、密集印刷的标签，扫描使用较高的理想摄像头分辨率并利用完整画面；实际分辨率取决于设备和浏览器。本页面使用 html5-qrcode 开源库，需联网加载识别组件。</p>
+<p class="note">内存条标签较小时，请先擦净镜头、保持标签平整并增加光线；让标签占据画面较大部分并保持手机稳定，点击屏幕上的标签位置帮助相机对焦。可用变焦滑块放大。浏览器摄像头需要 HTTPS（localhost 除外）。设备不一定支持请求的最高分辨率或变焦。</p>
 </main>
 <script>
 'use strict';
@@ -77,8 +83,6 @@ let scanner=null,running=false,starting=false,count=0;
 const lastSeen=new Map();
 const accepted=new Set();
 const DEDUPE_TIMEOUT_MS=1400;
-
-// html5-qrcode 2.3.8 exports all of these enum constants.
 const barFormats=[
  Html5QrcodeSupportedFormats.EAN_13,Html5QrcodeSupportedFormats.EAN_8,
  Html5QrcodeSupportedFormats.UPC_A,Html5QrcodeSupportedFormats.UPC_E,
@@ -106,7 +110,7 @@ function status(text,live=false){
  $('status').textContent=text;
  $('dot').classList.toggle('live',live);
  $('startBtn').disabled=running||starting;
- $('stopBtn').disabled=!running;
+ $('stopBtn').disabled=!running&&!starting;
 }
 function onDecoded(decodedText){
  if(typeof decodedText!=='string'||!decodedText.length) return;
@@ -133,9 +137,36 @@ async function releaseScanner(){
  scanner=null;
  try{
   if(oldScanner.getState()!==Html5QrcodeScannerState.NOT_STARTED) await oldScanner.stop();
- }catch(e){/* Stop may already have been completed by the camera/browser. */}
+ }catch(e){/* Stop may already have completed by the camera/browser. */}
  try{await oldScanner.clear();}catch(e){/* clear is best-effort after startup failures. */}
+ $('zoomPanel').hidden=true;
 }
+async function setupCameraControls(){
+ $('zoomPanel').hidden=true;
+ try{
+  const caps=scanner.getRunningTrackCapabilities();
+  if(caps&&caps.focusMode&&Array.from(caps.focusMode).includes('continuous')){
+   await scanner.applyVideoConstraints({advanced:[{focusMode:'continuous'}]});
+  }
+  if(caps&&caps.zoom){
+   const zoom=caps.zoom,slider=$('zoomSlider');
+   slider.min=String(zoom.min);
+   slider.max=String(zoom.max);
+   slider.step=String(zoom.step||0.1);
+   const initial=Math.max(zoom.min,Math.min(zoom.max,Number(zoom.current)||zoom.min));
+   slider.value=String(initial);
+   $('zoomValue').textContent=initial.toFixed(1)+'×';
+   $('zoomPanel').hidden=false;
+  }
+ }catch(e){/* Focus/zoom controls vary by Android device and browser. */}
+}
+$('zoomSlider').addEventListener('input',async event=>{
+ const zoom=Number(event.currentTarget.value);
+ $('zoomValue').textContent=zoom.toFixed(1)+'×';
+ if(!scanner||!running) return;
+ try{await scanner.applyVideoConstraints({advanced:[{zoom}]});}
+ catch(e){$('error').textContent='此设备暂不支持摄像头变焦：'+(e.message||e);}
+});
 async function start(){
  if(running||starting) return;
  $('error').textContent='';
@@ -154,8 +185,9 @@ async function start(){
   await scanner.start(
    {facingMode:'environment'},
    {
-    fps:12,
-    // Do not set qrbox: scan the full camera frame, which helps with small labels.
+    // Full-frame scanning; no small fixed qrbox. A moderate decode fps gives
+    // Android phones time to process high-resolution frames, especially Data Matrix.
+    fps:10,
     videoConstraints:{
      facingMode:{ideal:'environment'},
      width:{ideal:1920},
@@ -168,7 +200,8 @@ async function start(){
   );
   running=true;
   starting=false;
-  status('正在扫描 · 请将标签放入完整画面',true);
+  status('正在扫描 · 请让标签占据画面较大部分',true);
+  await setupCameraControls();
  }catch(e){
   running=false;
   starting=false;
