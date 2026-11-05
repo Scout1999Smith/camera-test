@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#172033">
+  <title>手机摄像头测试</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 22px 16px; background: #f3f6fb;
+      color: #172033; font-family: system-ui, -apple-system, sans-serif;
+    }
+    main { max-width: 520px; margin: auto; }
+    .card {
+      background: #fff; border: 1px solid #e5eaf0; border-radius: 18px;
+      padding: 18px; box-shadow: 0 5px 20px #1720330b;
+    }
+    h1 { font-size: 22px; margin: 0 0 8px; }
+    p { color: #64748b; line-height: 1.55; font-size: 14px; }
+    button {
+      width: 100%; border: 0; border-radius: 12px; padding: 15px;
+      background: #2563eb; color: white; font-size: 16px;
+      font-weight: 650; margin-top: 10px;
+    }
+    button.secondary { background: #e8edf5; color: #243247; }
+    video {
+      display: block; width: 100%; min-height: 220px; margin-top: 16px;
+      background: #111827; border-radius: 14px; object-fit: cover;
+    }
+    #status {
+      padding: 12px; border-radius: 10px; background: #f1f5f9;
+      color: #334155; overflow-wrap: anywhere;
+    }
+    .hint { font-size: 12px; }
+  </style>
+</head>
+<body>
+<main>
+  <section class="card">
+    <h1>📷 手机摄像头测试</h1>
+    <p>用于检查浏览器能否调用手机摄像头。建议通过 HTTPS 网站地址打开，而不是从文件管理器直接打开。</p>
+    <button id="start">开启后置摄像头</button>
+    <button id="stop" class="secondary" disabled>关闭摄像头</button>
+    <video id="video" autoplay muted playsinline></video>
+    <p id="status" role="status">状态：等待启动</p>
+    <p class="hint">如果浏览器询问摄像头权限，请选择“允许”。测试结束后可点击“关闭摄像头”。</p>
+  </section>
+</main>
+<script>
+const video = document.getElementById('video');
+const statusEl = document.getElementById('status');
+const startBtn = document.getElementById('start');
+const stopBtn = document.getElementById('stop');
+let stream = null;
+
+async function startCamera() {
+  stopCamera();
+  try {
+    if (!window.isSecureContext) {
+      throw new Error('当前不是安全网页环境。请通过 HTTPS 地址打开；本地 file:// 页面通常不能调用摄像头。');
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error('当前浏览器没有提供摄像头接口。请更新浏览器，或换用 Chrome 测试。');
+    }
+
+    statusEl.textContent = '状态：正在请求摄像头权限……';
+
+    // 优先尝试后置摄像头；若设备不支持该约束，再尝试任意摄像头。
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' } },
+        audio: false
+      });
+    } catch (firstError) {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: false
+      });
+    }
+
+    video.srcObject = stream;
+    await video.play();
+
+    const track = stream.getVideoTracks()[0];
+    const settings = track && track.getSettings ? track.getSettings() : {};
+    const size = settings.width && settings.height
+      ? `（${settings.width} × ${settings.height}）` : '';
+
+    statusEl.textContent = '测试成功：摄像头画面已显示' + size;
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
+  } catch (error) {
+    statusEl.textContent = `启动失败：${error.name || 'Error'}：${error.message || error}`;
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+  }
+}
+
+function stopCamera() {
+  if (stream) {
+    stream.getTracks().forEach(track => track.stop());
+    stream = null;
+  }
+  video.srcObject = null;
+  startBtn.disabled = false;
+  stopBtn.disabled = true;
+}
+
+startBtn.addEventListener('click', startCamera);
+stopBtn.addEventListener('click', () => {
+  stopCamera();
+  statusEl.textContent = '状态：摄像头已关闭';
+});
+window.addEventListener('pagehide', stopCamera);
+</script>
+</body>
+</html>
